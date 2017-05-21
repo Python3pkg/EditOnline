@@ -14,20 +14,20 @@ __version__ = "0.1.14"
 
 import os
 import posixpath
-import BaseHTTPServer
-import SocketServer
+import http.server
+import socketserver
 import socket
-import urllib
-import urlparse
+import urllib.request, urllib.parse, urllib.error
+import urllib.parse
 import cgi
 import sys
 import shutil
 import mimetypes
 import json
 try:
-	from cStringIO import StringIO
+	from io import StringIO
 except ImportError:
-	from StringIO import StringIO
+	from io import StringIO
 
 libdir = os.path.dirname(__file__)
 if not libdir:
@@ -42,7 +42,7 @@ options = {
 
 
 
-class EditOnlineRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
+class EditOnlineRequestHandler(http.server.BaseHTTPRequestHandler):
 	server_version = "EditOnline/" + __version__
 	protocol_version = "HTTP/1.1"
 	editortmpl = ''
@@ -128,7 +128,7 @@ class EditOnlineRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 				'exists':'true' if os.path.exists(self.translate_path(self.path.replace('~editor', ''))) else 'false',
 				}
 			res = EditOnlineRequestHandler.editortmpl
-			for k, v in cxt.items():
+			for k, v in list(cxt.items()):
 				res = res.replace('{{%s}}' % k, v)
 
 			f = StringIO()
@@ -142,13 +142,13 @@ class EditOnlineRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 			f.seek(0)
 			return f
 		elif os.path.isdir(path):
-			parts = urlparse.urlsplit(self.path)
+			parts = urllib.parse.urlsplit(self.path)
 			if not parts.path.endswith('/'):
 				# redirect browser - doing basically what apache does
 				self.send_response(301)
 				new_parts = (parts[0], parts[1], parts[2] + '/',
 							 parts[3], parts[4])
-				new_url = urlparse.urlunsplit(new_parts)
+				new_url = urllib.parse.urlunsplit(new_parts)
 				self.send_header("Location", new_url)
 				self.send_header('Connection', 'close')
 				self.end_headers()
@@ -186,13 +186,13 @@ class EditOnlineRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 
 	def list_directory(self, path):
 		try:
-			list = filter(lambda s:not s.startswith('.'), os.listdir(path))
+			list = [s for s in os.listdir(path) if not s.startswith('.')]
 		except os.error:
 			self.send_error(404, "No permission to list directory")
 			return None
 		list.sort(key=lambda a: (' ' if os.path.isdir(a) else '') + a.lower())
 		f = StringIO()
-		displaypath = cgi.escape(urllib.unquote(self.path))
+		displaypath = cgi.escape(urllib.parse.unquote(self.path))
 		f.write('<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">')
 		f.write("<html>\n<title>Directory listing for %s</title>\n" % displaypath)
 		f.write("<body>\n<h2>Directory listing for %s</h2>\n" % displaypath)
@@ -208,8 +208,8 @@ class EditOnlineRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 				displayname = name + "@"
 				# Note: a link to a directory displays with @ and links with /
 			isdir = os.path.isdir(fullname)
-			l1 = '<a href="%s">%s</a>' % (urllib.quote(linkname), cgi.escape(displayname));
-			l2 = '<a href="%s~editor" target="_blank">edit</a>' % (urllib.quote(linkname));
+			l1 = '<a href="%s">%s</a>' % (urllib.parse.quote(linkname), cgi.escape(displayname));
+			l2 = '<a href="%s~editor" target="_blank">edit</a>' % (urllib.parse.quote(linkname));
 			if isdir:
 				li = '<li>%s</li>' % l1
 			else:
@@ -239,9 +239,9 @@ class EditOnlineRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 		path = path.split('#', 1)[0]
 		# Don't forget explicit trailing slash when normalizing. Issue17324
 		trailing_slash = path.rstrip().endswith('/')
-		path = posixpath.normpath(urllib.unquote(path))
+		path = posixpath.normpath(urllib.parse.unquote(path))
 		words = path.split('/')
-		words = filter(None, words)
+		words = [_f for _f in words if _f]
 		path = options.get('workdir')
 		for word in words:
 			drive, word = os.path.splitdrive(word)
@@ -290,11 +290,11 @@ class EditOnlineRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 		shutil.copyfileobj(source, outputfile)
 
 
-class ThreadingHTTPServer(SocketServer.ThreadingTCPServer):
+class ThreadingHTTPServer(socketserver.ThreadingTCPServer):
 	allow_reuse_address = 1  # Seems to make sense in testing environment
 	def server_bind(self):
 		"""Override server_bind to store the server name."""
-		SocketServer.TCPServer.server_bind(self)
+		socketserver.TCPServer.server_bind(self)
 		host, port = self.socket.getsockname()[:2]
 		self.server_name = socket.getfqdn(host)
 		self.server_port = port
@@ -304,8 +304,8 @@ def start():
 	server_address = (options['bind'], port)
 	httpd = ThreadingHTTPServer(server_address, EditOnlineRequestHandler)
 	sa = httpd.socket.getsockname()
-	print "Root Directory: %s" % options.get('workdir')
-	print "Serving HTTP on", sa[0], "port", sa[1], "..."
+	print("Root Directory: %s" % options.get('workdir'))
+	print("Serving HTTP on", sa[0], "port", sa[1], "...")
 	httpd.serve_forever()
 
 def config(argv):
@@ -321,8 +321,8 @@ def config(argv):
 		elif opt == '-d':
 			options['workdir'] = arg
 		elif opt == '-h':
-			print 'Usage: python -m EditOnline [-u username] [-p password] [-r realm] [-d workdir] [bindaddress:port | port]'
-			print 'Report bugs to <sintrb@gmail.com>'
+			print('Usage: python -m EditOnline [-u username] [-p password] [-r realm] [-d workdir] [bindaddress:port | port]')
+			print('Report bugs to <sintrb@gmail.com>')
 			exit()
 
 	if options.get('username') and options.get('password'):
